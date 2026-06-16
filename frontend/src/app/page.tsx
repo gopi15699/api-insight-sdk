@@ -836,7 +836,12 @@ function Pricing() {
                 ))}
               </ul>
 
-              <Link href={plan.href}
+              <Link
+                href={
+                  plan.monthly === null || plan.monthly === 0
+                    ? plan.href // Team → contact, Free → plain signup
+                    : `/register?next=${encodeURIComponent(`/dashboard/billing?cycle=${yearly ? 'yearly' : 'monthly'}`)}`
+                }
                 className={`w-full h-11 inline-flex items-center justify-center rounded-xl text-sm font-semibold transition-all duration-200 ${plan.ctaStyle}`}>
                 {plan.cta}
               </Link>

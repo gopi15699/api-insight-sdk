@@ -1,5 +1,17 @@
 import mongoose, { Document, Schema } from 'mongoose';
 import bcrypt from 'bcryptjs';
+import type { PlanId, BillingCycle } from '../config/plans';
+
+/**
+ * Subscription lifecycle, mirroring the Razorpay subscription states we care
+ * about. `none` is the default for free-tier accounts that never subscribed.
+ */
+export type SubscriptionStatus =
+  | 'none'
+  | 'created'    // subscription created, awaiting first authorised payment
+  | 'active'     // paid & current
+  | 'past_due'   // a charge failed (Razorpay: halted/pending)
+  | 'cancelled'; // cancelled (may still be active until currentPeriodEnd)
 
 export interface IUser extends Document {
   name: string;
@@ -10,6 +22,15 @@ export interface IUser extends Document {
   authProvider: 'local' | 'google';
   loginAttempts: number;    // consecutive failed logins
   lockUntil?: Date;         // account locked until this timestamp
+
+  // ── Billing ──────────────────────────────────────────────────────────────
+  plan: PlanId;
+  billingCycle?: BillingCycle;
+  subscriptionStatus: SubscriptionStatus;
+  razorpayCustomerId?: string;
+  razorpaySubscriptionId?: string;
+  currentPeriodEnd?: Date;  // access remains until this date even if cancelled
+
   createdAt: Date;
   comparePassword(candidate: string): Promise<boolean>;
   isLocked(): boolean;
@@ -25,6 +46,13 @@ const UserSchema = new Schema<IUser>(
     authProvider:   { type: String, enum: ['local', 'google'], default: 'local' },
     loginAttempts:  { type: Number, default: 0 },
     lockUntil:      { type: Date },
+
+    plan:                   { type: String, enum: ['free', 'pro', 'ultra'], default: 'free' },
+    billingCycle:           { type: String, enum: ['monthly', 'yearly'] },
+    subscriptionStatus:     { type: String, enum: ['none', 'created', 'active', 'past_due', 'cancelled'], default: 'none' },
+    razorpayCustomerId:     { type: String },
+    razorpaySubscriptionId: { type: String, index: true },
+    currentPeriodEnd:       { type: Date },
   },
   { timestamps: true }
 );

@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Activity, LayoutDashboard, FolderOpen, FileText, LogOut, Layers } from 'lucide-react';
+import { Activity, LayoutDashboard, FolderOpen, FileText, LogOut, Layers, CreditCard } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth, useAppDispatch } from '@/store/hooks';
 import { clearCredentials } from '@/store/slices/authSlice';
@@ -11,6 +11,7 @@ const nav = [
   { href: '/dashboard/projects', label: 'Projects',     icon: FolderOpen },
   { href: '/dashboard/logs',     label: 'Logs',         icon: FileText },
   { href: '/dashboard/groups',   label: 'Error Groups', icon: Layers },
+  { href: '/dashboard/billing',  label: 'Billing',      icon: CreditCard },
 ];
 
 export default function Sidebar() {

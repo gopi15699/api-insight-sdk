@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import GoogleButton from '@/components/auth/GoogleButton';
 import api from '@/lib/api';
+import { getNextPath } from '@/lib/utils';
 import { useAppDispatch } from '@/store/hooks';
 import { setCredentials } from '@/store/slices/authSlice';
 
@@ -48,7 +49,7 @@ export default function RegisterPage() {
       const { data } = await api.post('/auth/register', form);
       dispatch(setCredentials({ user: data.data.user, token: data.data.token }));
       toast.success('Account created! Welcome 🎉');
-      router.push('/dashboard');
+      router.push(getNextPath());
     } catch (err: unknown) {
       const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Registration failed';
       toast.error(message);

@@ -9,6 +9,7 @@ import {
   getErrorGroups,
   getLogStats,
 } from '../services/log.service';
+import { getProjectById } from '../services/project.service';
 import { createError } from '../middleware/errorHandler';
 
 // POST /logs — called by SDK using API key
@@ -27,6 +28,7 @@ export const list = async (req: AuthRequest, res: Response, next: NextFunction):
   try {
     const projectId = req.query.projectId as string;
     if (!projectId) throw createError('projectId query param is required', 400);
+    await getProjectById(projectId, req.user!.id);
 
     const result = await getLogs(projectId, {
       page: req.query.page ? Number(req.query.page) : undefined,
@@ -49,6 +51,7 @@ export const groups = async (req: AuthRequest, res: Response, next: NextFunction
   try {
     const projectId = req.query.projectId as string;
     if (!projectId) throw createError('projectId query param is required', 400);
+    await getProjectById(projectId, req.user!.id);
 
     const data = await getErrorGroups(projectId);
     res.json({ success: true, data });
@@ -62,6 +65,7 @@ export const stats = async (req: AuthRequest, res: Response, next: NextFunction)
   try {
     const projectId = req.query.projectId as string;
     if (!projectId) throw createError('projectId query param is required', 400);
+    await getProjectById(projectId, req.user!.id);
 
     const data = await getLogStats(projectId);
     res.json({ success: true, data });
@@ -75,6 +79,7 @@ export const getOne = async (req: AuthRequest, res: Response, next: NextFunction
   try {
     const projectId = req.query.projectId as string;
     if (!projectId) throw createError('projectId query param is required', 400);
+    await getProjectById(projectId, req.user!.id);
 
     const log = await getLogById(req.params.id, projectId);
     if (!log) throw createError('Log not found', 404);

@@ -1,8 +1,12 @@
 import { z } from 'zod';
 import { Log } from '../models/Log';
+import { Project } from '../models/Project';
+import { User } from '../models/User';
 import { analyseRootCause, buildGroupKey } from '../engines/rootCause';
 import { sendAlert } from '../utils/alerts';
 import { env } from '../config/env';
+import { PLANS, PlanId } from '../config/plans';
+import { createError } from '../middleware/errorHandler';
 
 export const IngestLogSchema = z.object({
   endpoint: z.string().min(1),
@@ -24,12 +28,26 @@ interface ProjectContext {
   name: string;
   alertThreshold: number;
   alertEmail?: string;
+  plan: PlanId;
 }
 
 export const ingestLog = async (
   data: z.infer<typeof IngestLogSchema>,
   project: ProjectContext
 ) => {
+  // Enforce the plan's monitored-endpoint limit. A new endpoint beyond the cap
+  // is rejected; logs for endpoints already tracked continue to flow.
+  const maxEndpoints = PLANS[project.plan].limits.maxEndpoints;
+  if (maxEndpoints !== null) {
+    const known = await Log.distinct('endpoint', { projectId: project.id });
+    if (!known.includes(data.endpoint) && known.length >= maxEndpoints) {
+      throw createError(
+        `Endpoint limit reached (${maxEndpoints}) for your plan. Upgrade to monitor more endpoints.`,
+        403
+      );
+    }
+  }
+
   const suggestion = analyseRootCause({
     errorMessage: data.errorMessage,
     stackTrace: data.stackTrace,
@@ -74,9 +92,19 @@ export const getLogs = async (
   if (query.statusCode) filter.statusCode = query.statusCode;
   if (query.endpoint) filter.endpoint = { $regex: query.endpoint, $options: 'i' };
   if (query.method) filter.method = query.method.toUpperCase();
-  if (query.from || query.to) {
+
+  // Clamp the lower time bound to the plan's retention window — logs older than
+  // the retention period are not surfaced on lower tiers.
+  const retentionFloor = await getRetentionFloor(projectId);
+  const fromBound = query.from ? new Date(query.from) : undefined;
+  const lowerBound =
+    fromBound && retentionFloor
+      ? new Date(Math.max(fromBound.getTime(), retentionFloor.getTime()))
+      : fromBound || retentionFloor;
+
+  if (lowerBound || query.to) {
     filter.timestamp = {};
-    if (query.from) filter.timestamp.$gte = new Date(query.from);
+    if (lowerBound) filter.timestamp.$gte = lowerBound;
     if (query.to) filter.timestamp.$lte = new Date(query.to);
   }
 
@@ -129,6 +157,19 @@ export const getLogStats = async (projectId: string) => {
 
   return { total, errors24h, byStatus };
 };
+
+/**
+ * The earliest timestamp visible for a project, based on its owner's plan
+ * retention window. Returns undefined if the project/owner can't be resolved.
+ */
+async function getRetentionFloor(projectId: string): Promise<Date | undefined> {
+  const project = await Project.findById(projectId).select('userId');
+  if (!project) return undefined;
+  const owner = await User.findById(project.userId).select('plan');
+  const plan: PlanId = owner?.plan ?? 'free';
+  const days = PLANS[plan].limits.retentionDays;
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+}
 
 // ── Internal alert checker ─────────────────────────────────────────────────────
 async function checkAndAlert(

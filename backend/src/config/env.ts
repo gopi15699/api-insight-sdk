@@ -18,9 +18,24 @@ export const env = createEnv(
     ALERT_ERROR_THRESHOLD:   { type: 'number',  default: 10,  min: 1 },
     ALLOWED_ORIGINS:         { type: 'string',  default: 'http://localhost:3000', description: 'Comma-separated allowed CORS origins' },
     GOOGLE_CLIENT_ID:        { type: 'string',  required: false, description: 'Google OAuth2 client ID' },
+
+    // ── Razorpay billing ─────────────────────────────────────────────────────
+    // Optional so the app boots without billing configured; subscribe/webhook
+    // routes guard at runtime and return a clear error when keys are missing.
+    FRONTEND_URL:            { type: 'string',  default: 'http://localhost:3000', description: 'Public URL of the dashboard (Razorpay callback/return)' },
+    RAZORPAY_KEY_ID:         { type: 'string',  required: false, description: 'Razorpay API key id (rzp_test_… / rzp_live_…)' },
+    RAZORPAY_KEY_SECRET:     { type: 'string',  required: false, description: 'Razorpay API key secret' },
+    RAZORPAY_WEBHOOK_SECRET: { type: 'string',  required: false, description: 'Razorpay webhook signing secret' },
+    RAZORPAY_PLAN_PRO_MONTHLY:   { type: 'string', default: '', description: 'Razorpay plan id for Pro monthly' },
+    RAZORPAY_PLAN_PRO_YEARLY:    { type: 'string', default: '', description: 'Razorpay plan id for Pro yearly' },
+    RAZORPAY_PLAN_ULTRA_MONTHLY: { type: 'string', default: '', description: 'Razorpay plan id for Ultra monthly' },
+    RAZORPAY_PLAN_ULTRA_YEARLY:  { type: 'string', default: '', description: 'Razorpay plan id for Ultra yearly' },
   },
   { dotenv: true, mode: 'strict' }
 );
 
 // Derived helpers
 export const allowedOrigins = env.ALLOWED_ORIGINS.split(',').map((o) => o.trim());
+
+/** True when the Razorpay API credentials are configured. */
+export const billingEnabled = Boolean(env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET);

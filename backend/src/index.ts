@@ -11,6 +11,8 @@ import { errorHandler, notFound } from './middleware/errorHandler';
 import authRoutes from './routes/auth.routes';
 import projectRoutes from './routes/project.routes';
 import logRoutes from './routes/log.routes';
+import billingRoutes from './routes/billing.routes';
+import { webhook } from './controllers/billing.controller';
 
 const app = express();
 
@@ -57,6 +59,12 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
 }));
+
+// ── Razorpay webhook (raw body) ────────────────────────────────────────────────
+// Must be registered BEFORE the JSON body parser so the signature can be
+// verified against the exact bytes Razorpay signed. Bypasses the global rate
+// limiter and injection blocker (server-to-server, signature-authenticated).
+app.post('/api/billing/webhook', express.raw({ type: 'application/json', limit: '256kb' }), webhook);
 
 // ── Body parsing (tight limits) ────────────────────────────────────────────────
 app.use(express.json({ limit: '256kb' }));
@@ -139,6 +147,7 @@ app.get('/health', (_req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/logs', logRoutes);
+app.use('/api/billing', billingRoutes);
 
 // ── 404 & Error Handling ───────────────────────────────────────────────────────
 app.use(notFound);
