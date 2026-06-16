@@ -12,6 +12,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    // Intentional: flip to mounted after the first client render to avoid the
+    // localStorage-driven hydration mismatch described above.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
   }, []);
 

@@ -97,7 +97,7 @@ export default function LoginPage() {
             <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/80" />
           </div>
           <pre className="text-xs font-mono leading-relaxed">
-            <span className="text-slate-500">// Two lines. That&apos;s all it takes.</span>{'\n'}
+            <span className="text-slate-500">{"// Two lines. That's all it takes."}</span>{'\n'}
             <span className="text-violet-400">app</span>
             <span className="text-slate-300">.use(</span>
             <span className="text-emerald-400">createMiddleware</span>
@@ -106,7 +106,7 @@ export default function LoginPage() {
             <span className="text-slate-300">.use(</span>
             <span className="text-emerald-400">createErrorMiddleware</span>
             <span className="text-slate-300">(insight));</span>{'\n'}
-            <span className="text-slate-500 text-[10px]">// Every error is now tracked ✓</span>
+            <span className="text-slate-500 text-[10px]">{'// Every error is now tracked ✓'}</span>
           </pre>
         </div>
       </div>
