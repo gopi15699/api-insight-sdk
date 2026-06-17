@@ -23,13 +23,25 @@ export const useTier = () => useContext(TierContext);
 /**
  * Loads the account's plan once and exposes it to the dashboard so the whole UI
  * can reflect the tier. Falls back to `free` if billing can't be reached.
+ *
+ * `overridePlan` forces a tier and skips the network fetch — used by the
+ * tier preview route (and handy for tests).
  */
-export default function TierProvider({ children }: { children: React.ReactNode }) {
-  const [plan, setPlan] = useState<PlanId>('free');
-  const [status, setStatus] = useState<SubscriptionStatus>('none');
-  const [loading, setLoading] = useState(true);
+export default function TierProvider({
+  children,
+  overridePlan,
+}: {
+  children: React.ReactNode;
+  overridePlan?: PlanId;
+}) {
+  const [plan, setPlan] = useState<PlanId>(overridePlan ?? 'free');
+  const [status, setStatus] = useState<SubscriptionStatus>(
+    overridePlan && overridePlan !== 'free' ? 'active' : 'none'
+  );
+  const [loading, setLoading] = useState(!overridePlan);
 
   const refresh = () => {
+    if (overridePlan) return;
     getSubscription()
       .then((s) => {
         setPlan(s.plan);
@@ -43,6 +55,7 @@ export default function TierProvider({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
