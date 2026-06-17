@@ -16,12 +16,18 @@ export type SubscriptionStatus =
 export interface IUser extends Document {
   name: string;
   email: string;
-  password?: string;        // optional — Google users have no password
+  password?: string;        // optional — OAuth users have no password
   googleId?: string;
+  githubId?: string;
   avatar?: string;
-  authProvider: 'local' | 'google';
+  authProvider: 'local' | 'google' | 'github';
   loginAttempts: number;    // consecutive failed logins
   lockUntil?: Date;         // account locked until this timestamp
+
+  // ── Verification ───────────────────────────────────────────────────────────
+  emailVerified: boolean;
+  phone?: string;
+  phoneVerified: boolean;
 
   // ── Billing ──────────────────────────────────────────────────────────────
   plan: PlanId;
@@ -42,10 +48,15 @@ const UserSchema = new Schema<IUser>(
     email:        { type: String, required: true, unique: true, lowercase: true, trim: true },
     password:     { type: String, minlength: 6 },
     googleId:     { type: String, sparse: true },
+    githubId:     { type: String, sparse: true },
     avatar:       { type: String },
-    authProvider:   { type: String, enum: ['local', 'google'], default: 'local' },
+    authProvider:   { type: String, enum: ['local', 'google', 'github'], default: 'local' },
     loginAttempts:  { type: Number, default: 0 },
     lockUntil:      { type: Date },
+
+    emailVerified:  { type: Boolean, default: false },
+    phone:          { type: String, trim: true },
+    phoneVerified:  { type: Boolean, default: false },
 
     plan:                   { type: String, enum: ['free', 'pro', 'ultra'], default: 'free' },
     billingCycle:           { type: String, enum: ['monthly', 'yearly'] },

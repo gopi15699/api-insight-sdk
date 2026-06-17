@@ -7,6 +7,7 @@ import { Eye, EyeOff, Activity, Zap, Shield, BarChart3, ArrowRight } from 'lucid
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import GoogleButton from '@/components/auth/GoogleButton';
+import GitHubButton from '@/components/auth/GitHubButton';
 import api from '@/lib/api';
 import { getNextPath } from '@/lib/utils';
 import { useAppDispatch } from '@/store/hooks';
@@ -30,6 +31,15 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const { data } = await api.post('/auth/login', form);
+      // Unverified accounts are routed to verification instead of a session.
+      if (data.data?.requiresVerification) {
+        toast('Please verify your email to continue');
+        const next = new URLSearchParams(window.location.search).get('next');
+        router.push(
+          `/verify-email?email=${encodeURIComponent(data.data.email)}${next ? `&next=${encodeURIComponent(next)}` : ''}`
+        );
+        return;
+      }
       dispatch(setCredentials({ user: data.data.user, token: data.data.token }));
       toast.success('Welcome back!');
       router.push(getNextPath());
@@ -127,9 +137,10 @@ export default function LoginPage() {
             <p className="text-slate-400 text-sm mt-1">Sign in to your dashboard</p>
           </div>
 
-          {/* Google Sign-In */}
-          <div className="animate-fade-up stagger-2">
+          {/* Social Sign-In */}
+          <div className="animate-fade-up stagger-2 space-y-3">
             <GoogleButton label="Continue with Google" />
+            <GitHubButton label="Continue with GitHub" />
           </div>
 
           {/* Divider */}
