@@ -46,6 +46,18 @@ Endpoints (logged-in user):
 - `POST /api/auth/phone/request { phone }` — E.164, e.g. `+919876543210`
 - `POST /api/auth/phone/verify  { code }`
 
+### Migrating existing accounts
+
+Accounts created before verification existed are grandfathered in as verified
+(so they aren't forced to verify on next login). Run once after deploy:
+
+```bash
+cd backend && npm run migrate:verify-existing
+```
+
+It only touches documents missing the `emailVerified` field — new unverified
+signups are unaffected.
+
 ## GitHub OAuth
 
 1. Create an OAuth App at <https://github.com/settings/developers>.
