@@ -66,11 +66,15 @@ export const verifyEmail = async (data: z.infer<typeof VerifyEmailSchema>) => {
   const user = await User.findOne({ email });
   if (!user) throw createError('Account not found', 404);
 
-  if (!user.emailVerified) {
-    await verifyOtp(email, 'email_verify', data.code);
-    user.emailVerified = true;
-    await user.save();
+  // Already-verified accounts must sign in normally — never issue a session
+  // here without a valid OTP (would otherwise be a passwordless bypass).
+  if (user.emailVerified) {
+    throw createError('Email already verified — please sign in', 409);
   }
+
+  await verifyOtp(email, 'email_verify', data.code);
+  user.emailVerified = true;
+  await user.save();
 
   const token = signToken(user.id);
   return { user, token };
