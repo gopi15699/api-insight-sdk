@@ -59,6 +59,7 @@ The webhook is the **source of truth** for activation/renewal/cancellation.
 2. URL: `https://<your-backend>/api/billing/webhook`
 3. Secret: the same value as `RAZORPAY_WEBHOOK_SECRET`.
 4. Subscribe to these events:
+   - `subscription.authenticated`
    - `subscription.activated`
    - `subscription.charged`
    - `subscription.pending`

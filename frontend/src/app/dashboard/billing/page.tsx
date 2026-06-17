@@ -1,12 +1,13 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Check, Sparkles, AlertTriangle } from 'lucide-react';
+import { Check, Sparkles, AlertTriangle, Crown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/store/hooks';
+import { useTier } from '@/components/providers/TierProvider';
 import {
   getPlans,
   getSubscription,
@@ -20,7 +21,13 @@ import {
   type BillingCycle,
 } from '@/lib/billing';
 
-const PAID: PlanId[] = ['pro', 'ultra'];
+// Display order + taglines for the three self-serve tiers.
+const TIER_ORDER: PlanId[] = ['free', 'pro', 'ultra'];
+const TAGLINE: Record<PlanId, string> = {
+  free: 'For side projects',
+  pro: 'For growing teams',
+  ultra: 'For scale & mission-critical APIs',
+};
 
 const STATUS_LABEL: Record<string, string> = {
   none: 'Free',
@@ -36,6 +43,7 @@ function fmtLimit(v: number | null, noun: string) {
 
 export default function BillingPage() {
   const { user } = useAuth();
+  const { refresh: refreshTier } = useTier();
   const [plans, setPlans] = useState<PlanCatalogEntry[]>([]);
   const [sub, setSub] = useState<SubscriptionInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -78,8 +86,12 @@ export default function BillingPage() {
       });
 
       toast.success('Payment received — activating your plan…');
-      // Webhook is the source of truth; give it a moment, then refetch.
-      setTimeout(() => refresh().catch(() => {}), 2500);
+      // Webhook is the source of truth; give it a moment, then refetch both the
+      // page state and the global tier so the whole dashboard re-themes.
+      setTimeout(() => {
+        refresh().catch(() => {});
+        refreshTier();
+      }, 2500);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } }; message?: string })
         ?.response?.data?.message || (err as Error)?.message || 'Upgrade failed';
@@ -197,34 +209,105 @@ export default function BillingPage() {
       </div>
 
       {/* Plan cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-        {plans.filter((p) => PAID.includes(p.id)).map((p) => {
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-stretch">
+        {TIER_ORDER.map((id) => {
+          const p = plans.find((pl) => pl.id === id);
+          if (!p) return null;
+
           const price = cycle === 'yearly' ? p.price.yearly : p.price.monthly;
-          const isCurrent = currentPlan === p.id && sub?.subscriptionStatus === 'active';
+          const per = cycle === 'yearly' ? 'yr' : 'mo';
+          const isActive = sub?.subscriptionStatus === 'active';
+          const isCurrent = currentPlan === id && (id === 'free' ? true : isActive);
+          const features = [
+            fmtLimit(p.limits.maxProjects, 'project'),
+            fmtLimit(p.limits.maxEndpoints, 'endpoint'),
+            `${p.limits.retentionDays}-day retention`,
+          ];
+
+          // ── Ultra — ultra-premium animated gold card ──────────────────────
+          if (id === 'ultra') {
+            return (
+              <div key={id} className="relative">
+                <div className="ultra-glow pointer-events-none absolute -inset-3 rounded-[1.4rem] bg-amber-500/20 blur-2xl" />
+                <div className="ultra-card flex h-full flex-col shadow-[0_0_60px_-12px_rgba(245,158,11,0.5)]">
+                  <div className="flex flex-1 flex-col p-7">
+                    <span className="absolute right-4 top-4 rounded-full border border-amber-400/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-300">
+                      Ultimate
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <Crown className="h-5 w-5 text-amber-400" />
+                      <h3 className="text-lg font-bold text-white">{p.name}</h3>
+                    </div>
+                    <p className="mt-1 text-sm text-amber-200/60">{TAGLINE.ultra}</p>
+                    <p className="mt-3 text-3xl font-bold">
+                      <span className="text-shimmer-gold">₹{price.toLocaleString()}</span>
+                      <span className="text-base font-normal text-slate-500"> / {per}</span>
+                    </p>
+                    <ul className="my-6 flex-1 space-y-2.5 text-sm text-slate-200">
+                      {features.map((f) => (
+                        <li key={f} className="flex items-center gap-2">
+                          <Check className="h-4 w-4 text-amber-400" />{f}
+                        </li>
+                      ))}
+                    </ul>
+                    <Button
+                      disabled={isCurrent || busy !== null || !sub?.billingEnabled}
+                      onClick={() => handleUpgrade('ultra')}
+                      className="w-full bg-gradient-to-r from-amber-400 to-amber-500 font-semibold text-amber-950 shadow-lg shadow-amber-500/30 hover:from-amber-300 hover:to-amber-400 disabled:opacity-60"
+                    >
+                      {isCurrent ? 'Current plan' : busy === 'ultra' ? 'Starting…' : 'Upgrade to Ultra'}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          // ── Free (plain) + Pro (slightly premium) ─────────────────────────
+          const isPro = id === 'pro';
           return (
-            <Card key={p.id} className={`bg-slate-900 border-slate-800 ${p.id === 'pro' ? 'border-violet-500/40' : ''}`}>
+            <Card
+              key={id}
+              className={`relative flex flex-col ${
+                isPro
+                  ? 'border-violet-500/50 bg-gradient-to-b from-violet-950/40 to-slate-900 shadow-lg shadow-violet-900/30'
+                  : 'border-slate-800 bg-slate-900'
+              }`}
+            >
+              {isPro && (
+                <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-violet-600 px-3 py-1 text-xs font-semibold text-white shadow">
+                  Most popular
+                </span>
+              )}
               <CardHeader>
                 <div className="flex items-center gap-2">
+                  {isPro && <Sparkles className="h-4 w-4 text-violet-400" />}
                   <CardTitle className="text-white">{p.name}</CardTitle>
-                  {p.id === 'pro' && <Sparkles className="h-4 w-4 text-violet-400" />}
                 </div>
-                <p className="text-3xl font-bold text-white mt-2">
+                <p className={`text-sm ${isPro ? 'text-violet-200/70' : 'text-slate-400'}`}>{TAGLINE[id]}</p>
+                <p className="mt-2 text-3xl font-bold text-white">
                   ₹{price.toLocaleString()}
-                  <span className="text-base font-normal text-slate-500"> / {cycle === 'yearly' ? 'yr' : 'mo'}</span>
+                  <span className="text-base font-normal text-slate-500"> / {id === 'free' ? 'forever' : per}</span>
                 </p>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <ul className="space-y-2 text-sm text-slate-300">
-                  <li className="flex items-center gap-2"><Check className="h-4 w-4 text-emerald-400" />{fmtLimit(p.limits.maxProjects, 'project')}</li>
-                  <li className="flex items-center gap-2"><Check className="h-4 w-4 text-emerald-400" />{fmtLimit(p.limits.maxEndpoints, 'endpoint')}</li>
-                  <li className="flex items-center gap-2"><Check className="h-4 w-4 text-emerald-400" />{p.limits.retentionDays}-day retention</li>
+              <CardContent className="flex flex-1 flex-col">
+                <ul className="space-y-2.5 text-sm text-slate-300">
+                  {features.map((f) => (
+                    <li key={f} className="flex items-center gap-2">
+                      <Check className={`h-4 w-4 ${isPro ? 'text-violet-400' : 'text-emerald-400'}`} />{f}
+                    </li>
+                  ))}
                 </ul>
                 <Button
-                  disabled={isCurrent || busy !== null || !sub?.billingEnabled}
-                  onClick={() => handleUpgrade(p.id)}
-                  className={`w-full ${p.id === 'pro' ? 'bg-violet-600 hover:bg-violet-700' : 'bg-slate-700 hover:bg-slate-600'} text-white`}
+                  disabled={id === 'free' || isCurrent || busy !== null || !sub?.billingEnabled}
+                  onClick={() => { if (isPro) handleUpgrade('pro'); }}
+                  className={`mt-6 w-full ${
+                    isPro ? 'bg-violet-600 text-white hover:bg-violet-500' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                  } disabled:opacity-60`}
                 >
-                  {isCurrent ? 'Current plan' : busy === p.id ? 'Starting…' : `Upgrade to ${p.name}`}
+                  {id === 'free'
+                    ? (isCurrent ? 'Current plan' : 'Included')
+                    : (isCurrent ? 'Current plan' : busy === 'pro' ? 'Starting…' : 'Upgrade to Pro')}
                 </Button>
               </CardContent>
             </Card>

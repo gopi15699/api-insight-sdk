@@ -142,43 +142,81 @@ const mapStatus = (rzpStatus: string): SubscriptionStatus => {
   }
 };
 
+/** Reset an account back to the free tier and clear subscription state. */
+const downgradeToFree = (user: IUser): void => {
+  user.plan = 'free';
+  user.subscriptionStatus = 'none';
+  user.razorpaySubscriptionId = undefined;
+  user.billingCycle = undefined;
+  user.currentPeriodEnd = undefined;
+};
+
 /**
- * Apply a Razorpay subscription webhook event to the matching user.
- * Idempotent: safe to call for redelivered events.
+ * Apply a Razorpay `subscription.*` webhook event to the matching user.
+ * Handles each lifecycle event explicitly and is idempotent — safe to call
+ * for redelivered events.
+ *
+ * @see https://razorpay.com/docs/webhooks/payloads/subscriptions/
  */
 export const handleSubscriptionEvent = async (
   event: string,
   subscription: RazorpaySubscriptionEntity
 ): Promise<void> => {
   const user = await User.findOne({ razorpaySubscriptionId: subscription.id });
-  if (!user) return; // unknown subscription — nothing to do
+  if (!user) {
+    console.warn(`[billing] ${event} for unknown subscription ${subscription.id}`);
+    return;
+  }
 
   const targetPlan = subscription.notes?.plan as PlanId | undefined;
-  const status = mapStatus(subscription.status);
+  const periodEnd = subscription.current_end
+    ? new Date(subscription.current_end * 1000)
+    : undefined;
 
-  user.subscriptionStatus = status;
+  switch (event) {
+    case 'subscription.authenticated':
+      // Authorisation payment captured; plan not yet live.
+      user.subscriptionStatus = 'created';
+      break;
 
-  if (subscription.current_end) {
-    user.currentPeriodEnd = new Date(subscription.current_end * 1000);
-  }
+    case 'subscription.activated':
+    case 'subscription.charged':
+      // Activated (first cycle) or renewed (subsequent cycles): plan is live
+      // and the access window extends to the new period end.
+      user.subscriptionStatus = 'active';
+      if (targetPlan) user.plan = targetPlan;
+      if (periodEnd) user.currentPeriodEnd = periodEnd;
+      break;
 
-  if (status === 'active' && targetPlan) {
-    user.plan = targetPlan;
-  }
+    case 'subscription.pending':
+    case 'subscription.halted':
+      // A charge failed / Razorpay is retrying — keep the plan but flag it.
+      user.subscriptionStatus = 'past_due';
+      if (periodEnd) user.currentPeriodEnd = periodEnd;
+      break;
 
-  // On terminal cancellation/expiry whose access window has lapsed, drop to free.
-  if (
-    (event === 'subscription.cancelled' ||
-      event === 'subscription.completed' ||
-      event === 'subscription.expired') &&
-    (!user.currentPeriodEnd || user.currentPeriodEnd <= new Date())
-  ) {
-    user.plan = 'free';
-    user.subscriptionStatus = 'none';
-    user.razorpaySubscriptionId = undefined;
-    user.billingCycle = undefined;
-    user.currentPeriodEnd = undefined;
+    case 'subscription.cancelled':
+      // Cancelled — retain access until the period end, then drop to free.
+      user.subscriptionStatus = 'cancelled';
+      if (periodEnd) user.currentPeriodEnd = periodEnd;
+      if (!user.currentPeriodEnd || user.currentPeriodEnd <= new Date()) {
+        downgradeToFree(user);
+      }
+      break;
+
+    case 'subscription.completed':
+    case 'subscription.expired':
+      // Terminal — the subscription is over.
+      downgradeToFree(user);
+      break;
+
+    default:
+      // Any other subscription.* event — record status best-effort.
+      user.subscriptionStatus = mapStatus(subscription.status);
   }
 
   await user.save();
+  console.log(
+    `[billing] ${event} → user ${user.id} plan=${user.plan} status=${user.subscriptionStatus}`
+  );
 };
