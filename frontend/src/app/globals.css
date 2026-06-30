@@ -144,3 +144,78 @@ button:disabled,
   background-clip: text;
   animation: shimmer 3s linear infinite;
 }
+
+/* ── Premium plan-card treatments ─────────────────────────────────────────── */
+
+/* Gold shimmer text — Ultra tier price / accents */
+.text-shimmer-gold {
+  background: linear-gradient(
+    90deg,
+    #fde68a 0%,
+    #fbbf24 35%,
+    #f59e0b 50%,
+    #fbbf24 65%,
+    #fde68a 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: shimmer 3.5s linear infinite;
+}
+
+@keyframes borderSpin {
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+@keyframes glowPulse {
+  0%, 100% { opacity: 0.45; }
+  50%      { opacity: 0.9;  }
+}
+
+/*
+ * Ultra card: a rotating conic-gradient "beam" forms an animated gold border.
+ * The inner ::after masks the centre with a gold-tinted dark fill so only a
+ * thin border of the rotating gradient shows. Content sits above (z-index 0).
+ */
+.ultra-card {
+  position: relative;
+  border-radius: 1rem;
+  overflow: hidden;
+  isolation: isolate;
+}
+.ultra-card::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 220%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg 190deg,
+    rgba(245, 158, 11, 0.15) 230deg,
+    #fbbf24 285deg,
+    #fde68a 315deg,
+    rgba(245, 158, 11, 0.15) 345deg,
+    transparent 360deg
+  );
+  animation: borderSpin 7s linear infinite;
+  z-index: -2;
+}
+.ultra-card::after {
+  content: '';
+  position: absolute;
+  inset: 1.5px;
+  border-radius: calc(1rem - 1.5px);
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(120, 53, 15, 0.45), transparent 60%),
+    #0b0f1d;
+  z-index: -1;
+}
+
+/* Soft pulsing glow placed behind the Ultra card */
+.ultra-glow {
+  animation: glowPulse 4s ease-in-out infinite;
+}

@@ -322,10 +322,14 @@ function AiRootCauseVisual() {
   const [cycle,        setCycle]        = useState(0); // re-trigger loop
 
   useEffect(() => {
+    // Intentional: reset the demo animation counters whenever the loop
+    // re-triggers (cycle changes), then drive them via timers below.
+    /* eslint-disable react-hooks/set-state-in-effect */
     setScanProgress(0);
     setScanning(true);
     setVisibleRows(0);
     setVisibleFixes(0);
+    /* eslint-enable react-hooks/set-state-in-effect */
 
     // Scan bar fills over 1.6s
     let progress = 0;
@@ -359,7 +363,6 @@ function AiRootCauseVisual() {
     }, 30);
 
     return () => clearInterval(scanId);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cycle]);
 
   return (
@@ -836,7 +839,12 @@ function Pricing() {
                 ))}
               </ul>
 
-              <Link href={plan.href}
+              <Link
+                href={
+                  plan.monthly === null || plan.monthly === 0
+                    ? plan.href // Team → contact, Free → plain signup
+                    : `/register?next=${encodeURIComponent(`/dashboard/billing?cycle=${yearly ? 'yearly' : 'monthly'}`)}`
+                }
                 className={`w-full h-11 inline-flex items-center justify-center rounded-xl text-sm font-semibold transition-all duration-200 ${plan.ctaStyle}`}>
                 {plan.cta}
               </Link>

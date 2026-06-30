@@ -7,7 +7,9 @@ import { Eye, EyeOff, Activity, Check, ArrowRight } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import GoogleButton from '@/components/auth/GoogleButton';
+import GitHubButton from '@/components/auth/GitHubButton';
 import api from '@/lib/api';
+import { getNextPath } from '@/lib/utils';
 import { useAppDispatch } from '@/store/hooks';
 import { setCredentials } from '@/store/slices/authSlice';
 
@@ -46,9 +48,19 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       const { data } = await api.post('/auth/register', form);
+      // New accounts must verify their email before a session is issued.
+      if (data.data?.requiresVerification) {
+        toast.success('Check your inbox for a verification code');
+        const next = new URLSearchParams(window.location.search).get('next');
+        router.push(
+          `/verify-email?email=${encodeURIComponent(data.data.email)}${next ? `&next=${encodeURIComponent(next)}` : ''}`
+        );
+        return;
+      }
+      // Fallback (e.g. pre-verified accounts).
       dispatch(setCredentials({ user: data.data.user, token: data.data.token }));
       toast.success('Account created! Welcome 🎉');
-      router.push('/dashboard');
+      router.push(getNextPath());
     } catch (err: unknown) {
       const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Registration failed';
       toast.error(message);
@@ -129,9 +141,10 @@ export default function RegisterPage() {
             <p className="text-slate-400 text-sm mt-1">Start monitoring in minutes — free</p>
           </div>
 
-          {/* Google Sign-Up */}
-          <div className="animate-fade-up stagger-2">
+          {/* Social Sign-Up */}
+          <div className="animate-fade-up stagger-2 space-y-3">
             <GoogleButton label="Sign up with Google" />
+            <GitHubButton label="Sign up with GitHub" />
           </div>
 
           {/* Divider */}

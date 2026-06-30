@@ -7,7 +7,9 @@ import { Eye, EyeOff, Activity, Zap, Shield, BarChart3, ArrowRight } from 'lucid
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import GoogleButton from '@/components/auth/GoogleButton';
+import GitHubButton from '@/components/auth/GitHubButton';
 import api from '@/lib/api';
+import { getNextPath } from '@/lib/utils';
 import { useAppDispatch } from '@/store/hooks';
 import { setCredentials } from '@/store/slices/authSlice';
 
@@ -29,9 +31,18 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const { data } = await api.post('/auth/login', form);
+      // Unverified accounts are routed to verification instead of a session.
+      if (data.data?.requiresVerification) {
+        toast('Please verify your email to continue');
+        const next = new URLSearchParams(window.location.search).get('next');
+        router.push(
+          `/verify-email?email=${encodeURIComponent(data.data.email)}${next ? `&next=${encodeURIComponent(next)}` : ''}`
+        );
+        return;
+      }
       dispatch(setCredentials({ user: data.data.user, token: data.data.token }));
       toast.success('Welcome back!');
-      router.push('/dashboard');
+      router.push(getNextPath());
     } catch (err: unknown) {
       const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Login failed';
       toast.error(message);
@@ -96,7 +107,7 @@ export default function LoginPage() {
             <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/80" />
           </div>
           <pre className="text-xs font-mono leading-relaxed">
-            <span className="text-slate-500">// Two lines. That&apos;s all it takes.</span>{'\n'}
+            <span className="text-slate-500">{"// Two lines. That's all it takes."}</span>{'\n'}
             <span className="text-violet-400">app</span>
             <span className="text-slate-300">.use(</span>
             <span className="text-emerald-400">createMiddleware</span>
@@ -105,7 +116,7 @@ export default function LoginPage() {
             <span className="text-slate-300">.use(</span>
             <span className="text-emerald-400">createErrorMiddleware</span>
             <span className="text-slate-300">(insight));</span>{'\n'}
-            <span className="text-slate-500 text-[10px]">// Every error is now tracked ✓</span>
+            <span className="text-slate-500 text-[10px]">{'// Every error is now tracked ✓'}</span>
           </pre>
         </div>
       </div>
@@ -126,9 +137,10 @@ export default function LoginPage() {
             <p className="text-slate-400 text-sm mt-1">Sign in to your dashboard</p>
           </div>
 
-          {/* Google Sign-In */}
-          <div className="animate-fade-up stagger-2">
+          {/* Social Sign-In */}
+          <div className="animate-fade-up stagger-2 space-y-3">
             <GoogleButton label="Continue with Google" />
+            <GitHubButton label="Continue with GitHub" />
           </div>
 
           {/* Divider */}
