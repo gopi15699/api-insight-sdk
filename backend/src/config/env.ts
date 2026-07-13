@@ -1,4 +1,4 @@
-import { createEnv } from '@gopinath_natarajan/env-validator';
+import { createEnv } from 'envaegis';
 
 export const env = createEnv(
   {

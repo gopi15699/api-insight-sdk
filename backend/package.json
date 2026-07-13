@@ -11,7 +11,7 @@
     "migrate:verify-existing": "ts-node-dev --transpile-only src/scripts/grandfatherEmailVerified.ts"
   },
   "dependencies": {
-    "@gopinath_natarajan/env-validator": "^2.0.1",
+    "envaegis": "^2.0.1",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
