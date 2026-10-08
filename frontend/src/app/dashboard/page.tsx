@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { FolderOpen, AlertTriangle, Activity, Clock, Plus, ArrowRight } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Activity, Globe, Plus, ArrowRight, FolderOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -10,13 +10,23 @@ import { Skeleton } from '@/components/ui/skeleton';
 import StatCard from '@/components/projects/StatCard';
 import api from '@/lib/api';
 import { useAuth } from '@/store/hooks';
-import type { Project, Log } from '@/types';
+import type { Project, Log, LogStats } from '@/types';
+
+interface AggregatedStats {
+  total: number;
+  success: number;
+  failure: number;
+  errors24h: number;
+  successRate: number;
+  uniqueIps: number;
+}
 
 export default function DashboardPage() {
   const router = useRouter();
   const { user } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [recentLogs, setRecentLogs] = useState<Log[]>([]);
+  const [stats, setStats] = useState<AggregatedStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -26,8 +36,32 @@ export default function DashboardPage() {
         const ps: Project[] = data.data;
         setProjects(ps);
 
-        // Fetch recent errors across all projects
         if (ps.length > 0) {
+          // Aggregate stats across every project for the overview.
+          const statsResults = await Promise.all(
+            ps.map((p) =>
+              api
+                .get('/logs/stats', { params: { projectId: p._id } })
+                .then((r) => r.data.data as LogStats)
+                .catch(() => null)
+            )
+          );
+          const agg = statsResults.reduce<AggregatedStats>(
+            (acc, s) => {
+              if (!s) return acc;
+              acc.total += s.total;
+              acc.success += s.success;
+              acc.failure += s.failure;
+              acc.errors24h += s.errors24h;
+              acc.uniqueIps += s.uniqueIps;
+              return acc;
+            },
+            { total: 0, success: 0, failure: 0, errors24h: 0, successRate: 0, uniqueIps: 0 }
+          );
+          agg.successRate = agg.total > 0 ? Number(((agg.success / agg.total) * 100).toFixed(1)) : 0;
+          setStats(agg);
+
+          // Recent logs from the first project.
           const logsRes = await api.get('/logs', {
             params: { projectId: ps[0]._id, limit: 5 },
           });
@@ -81,10 +115,10 @@ export default function DashboardPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="animate-fade-up stagger-2"><StatCard title="Total Projects"  value={projects.length}             icon={FolderOpen}     accent="violet" /></div>
-          <div className="animate-fade-up stagger-3"><StatCard title="Recent Errors"   value={recentLogs.filter(l => l.statusCode >= 400).length} icon={AlertTriangle} accent="red" description="Last 5 logs" /></div>
-          <div className="animate-fade-up stagger-4"><StatCard title="Monitored APIs"  value={projects.length > 0 ? 'Active' : 'None'}          icon={Activity}      accent="green" /></div>
-          <div className="animate-fade-up stagger-5"><StatCard title="Last Activity"   value={recentLogs[0] ? new Date(recentLogs[0].timestamp).toLocaleTimeString() : '—'} icon={Clock} accent="amber" /></div>
+          <div className="animate-fade-up stagger-2"><StatCard title="Total API Calls" value={(stats?.total ?? 0).toLocaleString()} icon={Activity} accent="violet" description={`${projects.length} project${projects.length === 1 ? '' : 's'}`} /></div>
+          <div className="animate-fade-up stagger-3"><StatCard title="Successful"      value={(stats?.success ?? 0).toLocaleString()} icon={CheckCircle2} accent="green" description={`${stats?.successRate ?? 0}% success rate`} /></div>
+          <div className="animate-fade-up stagger-4"><StatCard title="Failed"          value={(stats?.failure ?? 0).toLocaleString()} icon={AlertTriangle} accent="red" description={`${stats?.errors24h ?? 0} in last 24h`} /></div>
+          <div className="animate-fade-up stagger-5"><StatCard title="Unique IPs"      value={(stats?.uniqueIps ?? 0).toLocaleString()} icon={Globe} accent="amber" description="Distinct clients" /></div>
         </div>
       )}
 
@@ -146,7 +180,7 @@ export default function DashboardPage() {
       {recentLogs.length > 0 && (
         <div>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-white">Recent Errors</h2>
+            <h2 className="text-lg font-semibold text-white">Recent Activity</h2>
             <Link href={`/dashboard/logs?projectId=${projects[0]?._id}`} className="text-sm text-violet-400 hover:text-violet-300 flex items-center gap-1">
               View all <ArrowRight className="h-3 w-3" />
             </Link>

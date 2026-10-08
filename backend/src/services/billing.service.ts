@@ -1,97 +1,135 @@
-import Razorpay from 'razorpay';
+import Stripe from 'stripe';
 import { env, billingEnabled } from '../config/env';
 import {
+  PLANS,
   PAID_PLANS,
   PlanId,
   BillingCycle,
-  resolveRazorpayPlanId,
+  resolveStripePriceId,
 } from '../config/plans';
 import { User, IUser, SubscriptionStatus } from '../models/User';
 import { createError } from '../middleware/errorHandler';
 
-/**
- * Number of billing cycles to authorise up front. Razorpay requires a finite
- * total_count; we set it high enough to be effectively "until cancelled".
- */
-const TOTAL_COUNT: Record<BillingCycle, number> = {
-  monthly: 120, // 10 years of monthly charges
-  yearly: 10,   // 10 years of yearly charges
-};
+let client: Stripe | null = null;
 
-let client: Razorpay | null = null;
-
-/** Lazily construct the Razorpay client; throws (502) if billing isn't configured. */
-const getClient = (): Razorpay => {
+/** Lazily construct the Stripe client; throws (502) if billing isn't configured. */
+const getClient = (): Stripe => {
   if (!billingEnabled) {
     throw createError('Billing is not configured on this server', 502);
   }
   if (!client) {
-    client = new Razorpay({
-      key_id: env.RAZORPAY_KEY_ID,
-      key_secret: env.RAZORPAY_KEY_SECRET,
-    });
+    // Non-null: billingEnabled guarantees STRIPE_SECRET_KEY is set.
+    client = new Stripe(env.STRIPE_SECRET_KEY as string);
   }
   return client;
 };
 
+/** Reverse-map a Stripe Price id back to our internal plan + cycle. */
+const planFromPriceId = (
+  priceId: string | undefined
+): { plan: PlanId; cycle: BillingCycle } | undefined => {
+  if (!priceId) return undefined;
+  for (const plan of PAID_PLANS) {
+    const ids = PLANS[plan].stripePriceId;
+    if (ids.monthly === priceId) return { plan, cycle: 'monthly' };
+    if (ids.yearly === priceId) return { plan, cycle: 'yearly' };
+  }
+  return undefined;
+};
+
+/** Map a Stripe subscription status to our internal lifecycle. */
+const mapStatus = (status: Stripe.Subscription.Status): SubscriptionStatus => {
+  switch (status) {
+    case 'active':
+    case 'trialing':
+      return 'active';
+    case 'past_due':
+    case 'unpaid':
+    case 'incomplete':
+    case 'paused':
+      return 'past_due';
+    case 'canceled':
+    case 'incomplete_expired':
+      return 'cancelled';
+    default:
+      return 'created';
+  }
+};
+
+/** Ensure the user has a Stripe customer, creating and persisting one if not. */
+const ensureCustomer = async (user: IUser): Promise<string> => {
+  if (user.stripeCustomerId) return user.stripeCustomerId;
+
+  const stripe = getClient();
+  const customer = await stripe.customers.create({
+    email: user.email,
+    name: user.name,
+    metadata: { userId: String(user._id) },
+  });
+
+  user.stripeCustomerId = customer.id;
+  await user.save();
+  return customer.id;
+};
+
 /**
- * Create (or reuse) a Razorpay subscription for a user on a paid plan.
- * Returns the data the frontend Checkout needs. Source of truth for activation
- * remains the webhook — this only puts the user into the `created` state.
+ * Create a Stripe Checkout Session for a user on a paid plan and return the
+ * hosted-checkout URL the frontend should redirect to. Activation remains
+ * driven by webhooks — this only puts the user into the `created` state.
  */
-export const createSubscription = async (
+export const createCheckoutSession = async (
   user: IUser,
   plan: PlanId,
   cycle: BillingCycle
-) => {
+): Promise<{ url: string }> => {
   if (!PAID_PLANS.includes(plan)) {
     throw createError(`Plan '${plan}' is not a paid plan`, 400);
   }
 
-  const razorpayPlanId = resolveRazorpayPlanId(plan, cycle);
-  if (!razorpayPlanId) {
-    throw createError(
-      `Razorpay plan id for ${plan}/${cycle} is not configured`,
-      502
-    );
+  const priceId = resolveStripePriceId(plan, cycle);
+  if (!priceId) {
+    throw createError(`Stripe price id for ${plan}/${cycle} is not configured`, 502);
   }
 
-  const rzp = getClient();
+  const stripe = getClient();
+  const customerId = await ensureCustomer(user);
+  const metadata = { userId: String(user._id), plan, cycle };
 
-  const subscription = await rzp.subscriptions.create({
-    plan_id: razorpayPlanId,
-    total_count: TOTAL_COUNT[cycle],
-    customer_notify: 1,
-    notes: { userId: String(user._id), plan, cycle },
+  const session = await stripe.checkout.sessions.create({
+    mode: 'subscription',
+    customer: customerId,
+    line_items: [{ price: priceId, quantity: 1 }],
+    allow_promotion_codes: true,
+    success_url: `${env.FRONTEND_URL}/billing?status=success&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${env.FRONTEND_URL}/billing?status=cancelled`,
+    client_reference_id: String(user._id),
+    metadata,
+    // Propagate metadata onto the subscription so later webhook events carry it.
+    subscription_data: { metadata },
   });
 
-  // Persist intent so the webhook can match this subscription back to the user.
-  user.razorpaySubscriptionId = subscription.id;
+  if (!session.url) {
+    throw createError('Failed to create checkout session', 502);
+  }
+
   user.billingCycle = cycle;
   user.subscriptionStatus = 'created';
-  // Stash the target plan in notes-driven webhook handling; also store now so a
-  // fast client-side confirmation can read it. Plan only becomes effective on
-  // `active`.
   await user.save();
 
-  return {
-    subscriptionId: subscription.id,
-    keyId: env.RAZORPAY_KEY_ID,
-    planId: razorpayPlanId,
-    plan,
-    cycle,
-  };
+  return { url: session.url };
 };
 
-/** Cancel a user's subscription at the end of the current billing cycle. */
+/** Cancel a user's subscription at the end of the current billing period. */
 export const cancelSubscription = async (user: IUser) => {
-  if (!user.razorpaySubscriptionId) {
+  if (!user.stripeSubscriptionId) {
     throw createError('No active subscription to cancel', 400);
   }
-  const rzp = getClient();
+  const stripe = getClient();
 
-  // cancel_at_cycle_end: keep access until currentPeriodEnd, then drop to free.
-  await rzp.subscriptions.cancel(user.razorpaySubscriptionId, true);
+  // cancel_at_period_end: keep access until currentPeriodEnd, then drop to free.
+  await stripe.subscriptions.update(user.stripeSubscriptionId, {
+    cancel_at_period_end: true,
+  });
 
   user.subscriptionStatus = 'cancelled';
   await user.save();
@@ -99,124 +137,135 @@ export const cancelSubscription = async (user: IUser) => {
   return { status: user.subscriptionStatus, accessUntil: user.currentPeriodEnd };
 };
 
-/** Verify a Razorpay webhook payload against the configured signing secret. */
-export const verifyWebhookSignature = (
-  rawBody: string,
-  signature: string
-): boolean => {
-  if (!env.RAZORPAY_WEBHOOK_SECRET) return false;
-  try {
-    return Razorpay.validateWebhookSignature(
-      rawBody,
-      signature,
-      env.RAZORPAY_WEBHOOK_SECRET
-    );
-  } catch {
-    return false;
+/**
+ * Verify and parse a Stripe webhook payload. Throws if the signature is invalid.
+ * Stripe's SDK does the constant-time signature comparison for us.
+ */
+export const constructWebhookEvent = (rawBody: Buffer | string, signature: string): Stripe.Event => {
+  const stripe = getClient();
+  if (!env.STRIPE_WEBHOOK_SECRET) {
+    throw createError('Webhook secret not configured', 502);
   }
-};
-
-interface RazorpaySubscriptionEntity {
-  id: string;
-  status: string;
-  current_end?: number; // unix seconds
-  plan_id?: string;
-  notes?: Record<string, string>;
-}
-
-/** Map a Razorpay subscription status to our internal lifecycle. */
-const mapStatus = (rzpStatus: string): SubscriptionStatus => {
-  switch (rzpStatus) {
-    case 'active':
-    case 'authenticated':
-      return 'active';
-    case 'halted':
-    case 'pending':
-      return 'past_due';
-    case 'cancelled':
-    case 'completed':
-    case 'expired':
-      return 'cancelled';
-    default:
-      return 'created';
-  }
+  return stripe.webhooks.constructEvent(rawBody, signature, env.STRIPE_WEBHOOK_SECRET);
 };
 
 /** Reset an account back to the free tier and clear subscription state. */
 const downgradeToFree = (user: IUser): void => {
   user.plan = 'free';
   user.subscriptionStatus = 'none';
-  user.razorpaySubscriptionId = undefined;
+  user.stripeSubscriptionId = undefined;
   user.billingCycle = undefined;
   user.currentPeriodEnd = undefined;
 };
 
-/**
- * Apply a Razorpay `subscription.*` webhook event to the matching user.
- * Handles each lifecycle event explicitly and is idempotent — safe to call
- * for redelivered events.
- *
- * @see https://razorpay.com/docs/webhooks/payloads/subscriptions/
- */
-export const handleSubscriptionEvent = async (
-  event: string,
-  subscription: RazorpaySubscriptionEntity
-): Promise<void> => {
-  const user = await User.findOne({ razorpaySubscriptionId: subscription.id });
+/** Locate the user a subscription belongs to (by sub id, then customer id). */
+const findUserForSubscription = async (
+  sub: Stripe.Subscription
+): Promise<IUser | null> => {
+  const metaUserId = sub.metadata?.userId;
+  if (metaUserId) {
+    const byMeta = await User.findById(metaUserId);
+    if (byMeta) return byMeta;
+  }
+  const bySub = await User.findOne({ stripeSubscriptionId: sub.id });
+  if (bySub) return bySub;
+  const customerId = typeof sub.customer === 'string' ? sub.customer : sub.customer?.id;
+  if (customerId) return User.findOne({ stripeCustomerId: customerId });
+  return null;
+};
+
+/** Apply the current state of a Stripe subscription to the matching user. */
+const applySubscription = async (sub: Stripe.Subscription): Promise<void> => {
+  const user = await findUserForSubscription(sub);
   if (!user) {
-    console.warn(`[billing] ${event} for unknown subscription ${subscription.id}`);
+    console.warn(`[billing] subscription ${sub.id} has no matching user`);
     return;
   }
 
-  const targetPlan = subscription.notes?.plan as PlanId | undefined;
-  const periodEnd = subscription.current_end
-    ? new Date(subscription.current_end * 1000)
-    : undefined;
+  const priceId = sub.items?.data?.[0]?.price?.id;
+  const resolved = planFromPriceId(priceId);
+  const status = mapStatus(sub.status);
 
-  switch (event) {
-    case 'subscription.authenticated':
-      // Authorisation payment captured; plan not yet live.
-      user.subscriptionStatus = 'created';
-      break;
+  user.stripeSubscriptionId = sub.id;
+  if (typeof sub.customer === 'string') user.stripeCustomerId = sub.customer;
+  user.subscriptionStatus = status;
+  if (sub.current_period_end) {
+    user.currentPeriodEnd = new Date(sub.current_period_end * 1000);
+  }
+  if (resolved) user.billingCycle = resolved.cycle;
 
-    case 'subscription.activated':
-    case 'subscription.charged':
-      // Activated (first cycle) or renewed (subsequent cycles): plan is live
-      // and the access window extends to the new period end.
-      user.subscriptionStatus = 'active';
-      if (targetPlan) user.plan = targetPlan;
-      if (periodEnd) user.currentPeriodEnd = periodEnd;
-      break;
-
-    case 'subscription.pending':
-    case 'subscription.halted':
-      // A charge failed / Razorpay is retrying — keep the plan but flag it.
-      user.subscriptionStatus = 'past_due';
-      if (periodEnd) user.currentPeriodEnd = periodEnd;
-      break;
-
-    case 'subscription.cancelled':
-      // Cancelled — retain access until the period end, then drop to free.
-      user.subscriptionStatus = 'cancelled';
-      if (periodEnd) user.currentPeriodEnd = periodEnd;
-      if (!user.currentPeriodEnd || user.currentPeriodEnd <= new Date()) {
-        downgradeToFree(user);
-      }
-      break;
-
-    case 'subscription.completed':
-    case 'subscription.expired':
-      // Terminal — the subscription is over.
+  if (status === 'active' && resolved) {
+    user.plan = resolved.plan;
+  } else if (status === 'cancelled') {
+    // Access retained until period end; drop to free once it has passed.
+    if (!user.currentPeriodEnd || user.currentPeriodEnd <= new Date()) {
       downgradeToFree(user);
-      break;
-
-    default:
-      // Any other subscription.* event — record status best-effort.
-      user.subscriptionStatus = mapStatus(subscription.status);
+    }
   }
 
   await user.save();
   console.log(
-    `[billing] ${event} → user ${user.id} plan=${user.plan} status=${user.subscriptionStatus}`
+    `[billing] sub ${sub.id} (${sub.status}) → user ${user.id} plan=${user.plan} status=${user.subscriptionStatus}`
   );
+};
+
+/**
+ * Handle a verified Stripe webhook event. Idempotent — safe for redeliveries.
+ * @see https://stripe.com/docs/billing/subscriptions/webhooks
+ */
+export const handleStripeEvent = async (event: Stripe.Event): Promise<void> => {
+  switch (event.type) {
+    case 'checkout.session.completed': {
+      const session = event.data.object as Stripe.Checkout.Session;
+      if (session.mode !== 'subscription' || !session.subscription) break;
+      const stripe = getClient();
+      const subId =
+        typeof session.subscription === 'string'
+          ? session.subscription
+          : session.subscription.id;
+      const sub = await stripe.subscriptions.retrieve(subId);
+      await applySubscription(sub);
+      break;
+    }
+
+    case 'customer.subscription.created':
+    case 'customer.subscription.updated':
+    case 'customer.subscription.resumed':
+    case 'customer.subscription.paused': {
+      await applySubscription(event.data.object as Stripe.Subscription);
+      break;
+    }
+
+    case 'customer.subscription.deleted': {
+      const sub = event.data.object as Stripe.Subscription;
+      const user = await findUserForSubscription(sub);
+      if (user) {
+        downgradeToFree(user);
+        await user.save();
+        console.log(`[billing] sub ${sub.id} deleted → user ${user.id} downgraded to free`);
+      }
+      break;
+    }
+
+    case 'invoice.payment_failed': {
+      const invoice = event.data.object as Stripe.Invoice;
+      const subId =
+        typeof (invoice as { subscription?: unknown }).subscription === 'string'
+          ? ((invoice as { subscription?: string }).subscription as string)
+          : undefined;
+      if (subId) {
+        const user = await User.findOne({ stripeSubscriptionId: subId });
+        if (user) {
+          user.subscriptionStatus = 'past_due';
+          await user.save();
+          console.log(`[billing] payment failed → user ${user.id} past_due`);
+        }
+      }
+      break;
+    }
+
+    default:
+      // Unhandled event types are acknowledged (200) without action.
+      break;
+  }
 };

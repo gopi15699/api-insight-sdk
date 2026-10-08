@@ -2,7 +2,8 @@ import mongoose, { Document, Schema } from 'mongoose';
 
 export interface ILog extends Document {
   projectId: mongoose.Types.ObjectId;
-  endpoint: string;
+  endpoint: string;            // raw request path (e.g. /users/999)
+  normalizedEndpoint: string;  // route pattern (e.g. /users/:id)
   method: string;
   statusCode: number;
   errorMessage?: string;
@@ -22,6 +23,7 @@ const LogSchema = new Schema<ILog>(
   {
     projectId: { type: Schema.Types.ObjectId, ref: 'Project', required: true, index: true },
     endpoint: { type: String, required: true },
+    normalizedEndpoint: { type: String, required: true, index: true },
     method: { type: String, required: true, uppercase: true },
     statusCode: { type: Number, required: true },
     errorMessage: { type: String },
@@ -41,6 +43,7 @@ const LogSchema = new Schema<ILog>(
 
 // Compound index for grouping queries
 LogSchema.index({ projectId: 1, groupKey: 1 });
+LogSchema.index({ projectId: 1, normalizedEndpoint: 1 });
 LogSchema.index({ projectId: 1, statusCode: 1 });
 LogSchema.index({ projectId: 1, timestamp: -1 });
 

@@ -1,6 +1,6 @@
 {
   "name": "api-insight-sdk",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "Node.js SDK for API Insight — automatic API failure monitoring, root cause analysis, and error grouping for Express, Fastify, NestJS, and more.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

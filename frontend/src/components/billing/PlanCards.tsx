@@ -67,7 +67,7 @@ export default function PlanCards({
                   </div>
                   <p className="mt-1 text-sm text-amber-200/60">{TAGLINE.ultra}</p>
                   <p className="mt-3 text-3xl font-bold">
-                    <span className="text-shimmer-gold">₹{price.toLocaleString()}</span>
+                    <span className="text-shimmer-gold">${price.toLocaleString()}</span>
                     <span className="text-base font-normal text-slate-500"> / {per}</span>
                   </p>
                   <ul className="my-6 flex-1 space-y-2.5 text-sm text-slate-200">
@@ -113,7 +113,7 @@ export default function PlanCards({
               </div>
               <p className={`text-sm ${isPro ? 'text-violet-200/70' : 'text-slate-400'}`}>{TAGLINE[id]}</p>
               <p className="mt-2 text-3xl font-bold text-white">
-                ₹{price.toLocaleString()}
+                ${price.toLocaleString()}
                 <span className="text-base font-normal text-slate-500"> / {id === 'free' ? 'forever' : per}</span>
               </p>
             </CardHeader>

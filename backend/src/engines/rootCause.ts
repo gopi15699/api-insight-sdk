@@ -197,11 +197,21 @@ export function analyseRootCause(input: RuleInput): string {
 /**
  * Generate a stable group key for deduplicating similar errors.
  * Groups by endpoint + normalised error message.
+ *
+ * The message is normalised so that errors that differ only by a variable value
+ * (an id, uuid, objectid, or any number — e.g. "User 999 not found" vs
+ * "User 888 not found") collapse into the SAME group. Variable tokens are
+ * replaced with `#`.
  */
 export function buildGroupKey(endpoint: string, errorMessage?: string): string {
   const normalisedError = (errorMessage || 'no-error')
     .toLowerCase()
-    .replace(/[^a-z0-9 ]/g, '')
+    // Variable tokens → '#'. Order matters: uuid/objectid before bare digits.
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '#')
+    .replace(/\b[0-9a-f]{24}\b/gi, '#')
+    .replace(/\d+/g, '#')
+    .replace(/[^a-z# ]/g, '')
+    .replace(/\s+/g, ' ')
     .substring(0, 80)
     .trim();
   return `${endpoint}::${normalisedError}`;

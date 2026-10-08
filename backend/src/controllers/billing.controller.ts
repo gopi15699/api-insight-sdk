@@ -7,10 +7,10 @@ import { User } from '../models/User';
 import { Project } from '../models/Project';
 import { createError } from '../middleware/errorHandler';
 import {
-  createSubscription,
+  createCheckoutSession,
   cancelSubscription,
-  verifyWebhookSignature,
-  handleSubscriptionEvent,
+  constructWebhookEvent,
+  handleStripeEvent,
 } from '../services/billing.service';
 
 const SubscribeSchema = z.object({
@@ -59,7 +59,7 @@ export const getSubscription = async (
   }
 };
 
-/** Authed — create a Razorpay subscription; returns data for Checkout. */
+/** Authed — create a Stripe Checkout Session; returns the hosted-checkout URL. */
 export const subscribe = async (
   req: AuthRequest,
   res: Response,
@@ -75,7 +75,7 @@ export const subscribe = async (
       throw createError(`You are already on the ${plan} plan`, 409);
     }
 
-    const result = await createSubscription(user, plan as PlanId, cycle);
+    const result = await createCheckoutSession(user, plan as PlanId, cycle);
     res.status(201).json({ success: true, data: result });
   } catch (err) {
     next(err);
@@ -100,36 +100,37 @@ export const cancel = async (
 };
 
 /**
- * Razorpay webhook. Mounted with a raw body parser so the signature can be
- * verified against the exact bytes Razorpay signed. Always 200s on success to
- * stop Razorpay retrying; 400 on a bad signature.
+ * Stripe webhook. Mounted with a raw body parser so the signature can be
+ * verified against the exact bytes Stripe signed. Always 200s on success to
+ * stop Stripe retrying; 400 on a bad signature.
  */
 export const webhook = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  _next: NextFunction
 ): Promise<void> => {
+  const signature = req.headers['stripe-signature'] as string | undefined;
+  if (!signature) {
+    res.status(400).json({ success: false, message: 'Missing signature' });
+    return;
+  }
+
+  let event;
   try {
-    const signature = req.headers['x-razorpay-signature'] as string | undefined;
-    const rawBody = (req.body as Buffer)?.toString('utf8') ?? '';
-
-    if (!signature || !verifyWebhookSignature(rawBody, signature)) {
-      res.status(400).json({ success: false, message: 'Invalid signature' });
-      return;
-    }
-
-    const payload = JSON.parse(rawBody) as {
-      event: string;
-      payload?: { subscription?: { entity?: unknown } };
-    };
-
-    const entity = payload.payload?.subscription?.entity;
-    if (payload.event?.startsWith('subscription.') && entity) {
-      await handleSubscriptionEvent(payload.event, entity as never);
-    }
-
-    res.json({ success: true });
+    // req.body is a Buffer here (express.raw). Verify against the exact bytes.
+    event = constructWebhookEvent(req.body as Buffer, signature);
   } catch (err) {
-    next(err);
+    console.error('[billing] webhook signature verification failed:', (err as Error).message);
+    res.status(400).json({ success: false, message: 'Invalid signature' });
+    return;
+  }
+
+  try {
+    await handleStripeEvent(event);
+    res.json({ received: true });
+  } catch (err) {
+    // Return 500 so Stripe retries a transient handler failure.
+    console.error('[billing] webhook handler error:', (err as Error).message);
+    res.status(500).json({ success: false, message: 'Webhook handler error' });
   }
 };

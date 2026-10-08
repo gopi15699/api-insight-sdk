@@ -19,15 +19,23 @@
 
 ## What is API Insight?
 
-API Insight is a **self-hosted API monitoring platform** that automatically captures HTTP errors (4xx/5xx) from your Node.js APIs, analyses the root cause using a rule-based engine, groups similar errors, and alerts you when thresholds are breached — all through a modern real-time dashboard.
+API Insight is an **API monitoring platform** that automatically captures **all
+API traffic** (success + failure) from your Node.js APIs — total calls, success
+rate, failure count, and unique client IPs — then analyses the root cause of
+failures using a rule-based engine, groups similar errors, and alerts you when
+thresholds are breached — all through a modern real-time dashboard. It ships as
+a monorepo with an npm SDK, an Express/MongoDB backend (deployable to Vercel),
+a Next.js dashboard, and Stripe-powered subscription billing.
 
-**Key value proposition:** Drop in 2 lines of middleware, get instant visibility into every API failure with actionable root cause suggestions — no manual logging required.
+**Key value proposition:** Drop in 2 lines of middleware, get instant visibility
+into every API call — success and failure — with actionable root cause
+suggestions on errors, and monetise it with built-in Stripe plans.
 
 ---
 
 ## Features
 
-- **Automatic Error Capture** — Express middleware intercepts all 4xx and 5xx responses with zero code changes to your routes
+- **Automatic Traffic Capture** — Express middleware records every request (success + failure) with zero code changes to your routes; success logs stay lightweight, failures carry full detail. Opt into errors-only with `{ errorsOnly: true }`
 - **Root Cause Analysis** — Rule-based engine analyses error patterns (null access, connection refused, JWT issues, DB errors, etc.) and provides actionable fix suggestions
 - **Error Grouping** — Similar errors are grouped by endpoint + normalised error message for deduplication
 - **Real-time Dashboard** — Next.js 16 dashboard with filterable log table, error groups with frequency bars, and stats overview
@@ -386,25 +394,23 @@ API Insight is security-hardened by default:
 
 ## Deployment
 
-### Backend
+**Full production runbook:** see **[`DEPLOYMENT.md`](./DEPLOYMENT.md)** — deploys
+the backend and frontend as **two Vercel projects** on a custom domain
+(`api.yourdomain.com` + `app.yourdomain.com`), with **MongoDB Atlas** and
+**Stripe** billing. Billing setup is in **[`BILLING.md`](./BILLING.md)**.
 
-1. Set `NODE_ENV=production` in your environment
-2. Set `MONGO_URI` to your production MongoDB (e.g. Atlas)
-3. Set a strong `JWT_SECRET` (minimum 12 characters)
-4. Configure `ALLOWED_ORIGINS` for your frontend domain
-5. Run: `cd backend && npm run build && npm start`
+The backend is serverless-ready: [`backend/api/index.ts`](backend/api/index.ts)
+exports the Express app as a Vercel function, MongoDB uses a cached connection
+([`backend/src/config/database.ts`](backend/src/config/database.ts)), and
+[`backend/vercel.json`](backend/vercel.json) routes all paths to it.
 
-### Frontend
+### Self-hosting (any long-lived Node host)
 
-1. Set `NEXT_PUBLIC_API_URL` to your backend URL
-2. Run: `cd frontend && npm run build && npm start`
-3. Or deploy to Vercel / Netlify
-
-### MongoDB
-
-- **Local:** `mongod`
-- **Atlas:** Use connection string in `MONGO_URI`
-- Indexes are created automatically by Mongoose on first run
+- **Backend:** set `NODE_ENV=production`, `MONGO_URI`, a strong `JWT_SECRET`
+  (≥ 12 chars), and `ALLOWED_ORIGINS`; then `cd backend && npm run build && npm start`.
+- **Frontend:** set `NEXT_PUBLIC_API_URL`; then `cd frontend && npm run build && npm start`.
+- **MongoDB:** local `mongod` or Atlas connection string in `MONGO_URI`; indexes
+  are created automatically by Mongoose on first run.
 
 ---
 
