@@ -32,7 +32,7 @@ The backend is the core of API Insight. It provides:
 | express-rate-limit | Rate limiting |
 | Nodemailer | Email alerts |
 | Morgan | HTTP request logging |
-| @gopinath_natarajan/env-validator | Environment variable validation |
+| envaegis | Environment variable validation |
 
 ---
 

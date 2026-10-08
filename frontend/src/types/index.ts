@@ -39,7 +39,13 @@ export interface ErrorGroup {
 
 export interface LogStats {
   total: number;
+  success: number;
+  failure: number;
+  total24h: number;
   errors24h: number;
+  success24h: number;
+  successRate: number;
+  uniqueIps: number;
   byStatus: { _id: number; count: number }[];
 }
 

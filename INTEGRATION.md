@@ -92,13 +92,13 @@ Open **http://localhost:3000/dashboard/logs** — you'll see each error with:
 
 ## What Gets Captured
 
-| Error Type | Captured by |
+| Traffic | Captured by |
 |---|---|
-| 4xx / 5xx HTTP responses | `createMiddleware` |
-| Uncaught `next(err)` thrown errors | `createErrorMiddleware` |
+| Every request — 2xx/3xx success **and** 4xx/5xx failure | `createMiddleware` |
+| Uncaught `next(err)` thrown errors (deduped with the above) | `createErrorMiddleware` |
 | Manual events | `insight.sendLog(...)` |
 
-Only errors are sent — successful (2xx/3xx) responses are ignored. This keeps the SDK lightweight with near-zero overhead on happy paths.
+Every request is captured so the dashboard can report total calls, success rate, failure count, and unique IPs. Success logs are lightweight (no request/response bodies); failures carry the error message, bodies, and a root-cause suggestion. Pass `{ errorsOnly: true }` to `createMiddleware` to capture only failures.
 
 ---
 

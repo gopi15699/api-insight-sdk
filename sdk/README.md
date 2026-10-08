@@ -19,7 +19,7 @@ import { ApiInsightClient, createMiddleware, createErrorMiddleware } from 'api-i
 
 const insight = new ApiInsightClient({ apiKey: 'aik_your_key_here' });
 
-// 1. Add BEFORE your routes — captures 4xx/5xx automatically
+// 1. Add BEFORE your routes — captures EVERY request (success + failure)
 app.use(createMiddleware(insight));
 
 // ... your routes ...
@@ -28,7 +28,11 @@ app.use(createMiddleware(insight));
 app.use(createErrorMiddleware(insight));
 ```
 
-That's it. Every 4xx and 5xx response is automatically sent to API Insight with endpoint, method, status code, error message, duration, IP, and user agent.
+That's it. Every request is sent to API Insight so your dashboard shows **total
+calls, success count, failure count, success rate, and unique IPs** — with
+endpoint, method, status code, duration, IP, and user agent. Failures (4xx/5xx)
+additionally carry the error message, request body, and response body for root
+cause analysis. Prefer errors-only? Pass `{ errorsOnly: true }`.
 
 ---
 
@@ -55,7 +59,7 @@ const insight = new ApiInsightClient({
 
 ## Express Middleware (Recommended)
 
-### Automatic capture — all 4xx and 5xx
+### Automatic capture — every request (success + failure)
 
 ```ts
 import express from 'express';
@@ -65,7 +69,10 @@ const app = express();
 const insight = new ApiInsightClient({ apiKey: process.env.API_INSIGHT_KEY! });
 
 // ── STEP 1: Add response monitor (before routes) ─────────────────────────────
-app.use(createMiddleware(insight));
+// Captures every request. Options:
+//   errorsOnly:  true  → only capture 4xx/5xx (default: false)
+//   ignorePaths: string[] → skip health checks etc. e.g. ['/health', '/metrics']
+app.use(createMiddleware(insight, { ignorePaths: ['/health'] }));
 
 // ── Your routes ──────────────────────────────────────────────────────────────
 app.get('/users/:id', async (req, res) => {
@@ -96,15 +103,19 @@ app.use((err: Error, req: express.Request, res: express.Response, next: express.
 
 | Field | Source |
 |---|---|
-| `endpoint` | `req.path` |
-| `method` | `req.method` |
-| `statusCode` | `res.statusCode` |
-| `errorMessage` | `res.json()` body `.message` field |
-| `requestBody` | `req.body` (if non-empty) |
-| `responseBody` | `res.json()` payload (on errors) |
-| `duration` | Time from request start to `res.finish` |
-| `userAgent` | `req.headers['user-agent']` |
-| `ip` | `req.ip` |
+| `endpoint` | `req.path` — captured on every request |
+| `method` | `req.method` — every request |
+| `statusCode` | `res.statusCode` — every request |
+| `duration` | Time from request start to `res.finish` — every request |
+| `userAgent` | `req.headers['user-agent']` — every request |
+| `ip` | `req.ip` — every request |
+| `errorMessage` | `res.json()` body `.message` — **errors only** |
+| `requestBody` | `req.body` (if non-empty) — **errors only** |
+| `responseBody` | `res.json()` payload — **errors only** |
+
+> On the happy path only lightweight fields are sent (no request/response
+> bodies), keeping success logs small and avoiding capture of sensitive
+> payloads.
 
 **What `createErrorMiddleware` adds:**
 

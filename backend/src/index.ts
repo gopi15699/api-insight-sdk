@@ -16,8 +16,18 @@ import { webhook } from './controllers/billing.controller';
 
 const app = express();
 
-// ── Trust proxy (needed for correct IP behind load balancers / Nginx) ──────────
+// ── Trust proxy (needed for correct IP behind load balancers / Vercel edge) ────
 app.set('trust proxy', 1);
+
+// ── Ensure a live MongoDB connection before any route runs ─────────────────────
+// On Vercel there is no long-lived boot step, so each invocation lazily reuses
+// the cached connection (see config/database.ts). Locally this resolves
+// instantly after the first connect.
+app.use((req, _res, next) => {
+  // /health is a liveness probe — it must answer even if the DB is unreachable.
+  if (req.path === '/health') return next();
+  connectDB().then(() => next()).catch(next);
+});
 
 // ── Security headers via Helmet ────────────────────────────────────────────────
 app.use(
@@ -60,9 +70,9 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
 }));
 
-// ── Razorpay webhook (raw body) ────────────────────────────────────────────────
+// ── Stripe webhook (raw body) ──────────────────────────────────────────────────
 // Must be registered BEFORE the JSON body parser so the signature can be
-// verified against the exact bytes Razorpay signed. Bypasses the global rate
+// verified against the exact bytes Stripe signed. Bypasses the global rate
 // limiter and injection blocker (server-to-server, signature-authenticated).
 app.post('/api/billing/webhook', express.raw({ type: 'application/json', limit: '256kb' }), webhook);
 
@@ -154,14 +164,21 @@ app.use(notFound);
 app.use(errorHandler);
 
 // ── Start ──────────────────────────────────────────────────────────────────────
-const start = async () => {
-  await connectDB();
-  app.listen(env.PORT, () => {
-    console.log(`🚀 API Insight backend running on http://localhost:${env.PORT}`);
-    console.log(`   Environment: ${env.NODE_ENV}`);
-  });
-};
-
-start();
+// On Vercel the app is imported as a serverless handler (see api/index.ts) and
+// must NOT call listen(). Locally (and on any long-lived host) we start a real
+// HTTP server.
+if (!process.env.VERCEL) {
+  connectDB()
+    .then(() => {
+      app.listen(env.PORT, () => {
+        console.log(`🚀 API Insight backend running on http://localhost:${env.PORT}`);
+        console.log(`   Environment: ${env.NODE_ENV}`);
+      });
+    })
+    .catch((err) => {
+      console.error('Failed to start server:', err);
+      process.exit(1);
+    });
+}
 
 export default app;

@@ -6,16 +6,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useAuth } from '@/store/hooks';
 import { useTier } from '@/components/providers/TierProvider';
 import PlanCards from '@/components/billing/PlanCards';
 import {
   getPlans,
   getSubscription,
-  createSubscription,
+  startCheckout,
   cancelSubscription,
-  loadRazorpayCheckout,
-  openCheckout,
   type PlanCatalogEntry,
   type SubscriptionInfo,
   type PlanId,
@@ -31,7 +28,6 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default function BillingPage() {
-  const { user } = useAuth();
   const { refresh: refreshTier } = useTier();
   const [plans, setPlans] = useState<PlanCatalogEntry[]>([]);
   const [sub, setSub] = useState<SubscriptionInfo | null>(null);
@@ -46,9 +42,38 @@ export default function BillingPage() {
   };
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+
     // Honor ?cycle=yearly|monthly from a pricing-page deep link.
-    const q = new URLSearchParams(window.location.search).get('cycle');
+    const q = params.get('cycle');
     if (q === 'yearly' || q === 'monthly') setCycle(q);
+
+    // Handle the return from Stripe Checkout.
+    const status = params.get('status');
+    if (status === 'success') {
+      toast.success('Payment received — activating your plan…');
+      // Webhook is the source of truth; give it a moment, then refetch state and
+      // the global tier so the whole dashboard re-themes. Poll a few times in
+      // case the webhook is slightly delayed.
+      let tries = 0;
+      const poll = setInterval(async () => {
+        tries += 1;
+        try {
+          const s = await getSubscription();
+          setSub(s);
+          if (s.subscriptionStatus === 'active' || tries >= 5) {
+            clearInterval(poll);
+            refreshTier();
+          }
+        } catch {
+          if (tries >= 5) clearInterval(poll);
+        }
+      }, 2000);
+    } else if (status === 'cancelled') {
+      toast.info('Checkout cancelled — no charge was made.');
+    }
+    // Clean the query string so a refresh doesn't re-trigger the toast.
+    if (status) window.history.replaceState({}, '', window.location.pathname);
 
     refresh()
       .catch(() => toast.error('Failed to load billing info'))
@@ -62,30 +87,12 @@ export default function BillingPage() {
     }
     setBusy(plan);
     try {
-      const ready = await loadRazorpayCheckout();
-      if (!ready) throw new Error('Could not load Razorpay Checkout');
-
-      const order = await createSubscription(plan, cycle);
-      await openCheckout({
-        keyId: order.keyId,
-        subscriptionId: order.subscriptionId,
-        plan,
-        cycle,
-        user: { name: user?.name, email: user?.email },
-      });
-
-      toast.success('Payment received — activating your plan…');
-      // Webhook is the source of truth; give it a moment, then refetch both the
-      // page state and the global tier so the whole dashboard re-themes.
-      setTimeout(() => {
-        refresh().catch(() => {});
-        refreshTier();
-      }, 2500);
+      // Redirects the browser to Stripe's hosted checkout.
+      await startCheckout(plan, cycle);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } }; message?: string })
         ?.response?.data?.message || (err as Error)?.message || 'Upgrade failed';
-      if (msg !== 'Checkout cancelled') toast.error(msg);
-    } finally {
+      toast.error(msg);
       setBusy(null);
     }
   };
@@ -129,7 +136,7 @@ export default function BillingPage() {
           <div className="text-sm text-amber-200">
             <p className="font-medium">Payments not configured</p>
             <p className="text-amber-200/70 mt-0.5">
-              Add your Razorpay keys to the backend (see <code className="text-amber-100">BILLING.md</code>) to enable upgrades.
+              Add your Stripe keys to the backend (see <code className="text-amber-100">BILLING.md</code>) to enable upgrades.
             </p>
           </div>
         </div>
@@ -193,7 +200,7 @@ export default function BillingPage() {
         </button>
         <button onClick={() => setCycle('yearly')}
           className={`text-sm font-medium px-5 py-2 rounded-lg transition-all flex items-center gap-2 ${cycle === 'yearly' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'}`}>
-          Yearly <span className="text-xs text-emerald-400">-20%</span>
+          Yearly <span className="text-xs text-emerald-400">2 months free</span>
         </button>
       </div>
 

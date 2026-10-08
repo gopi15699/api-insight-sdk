@@ -3,6 +3,7 @@ import { Log } from '../models/Log';
 import { Project } from '../models/Project';
 import { User } from '../models/User';
 import { analyseRootCause, buildGroupKey } from '../engines/rootCause';
+import { normalizeEndpoint } from '../utils/endpoint';
 import { sendAlert } from '../utils/alerts';
 import { env } from '../config/env';
 import { PLANS, PlanId } from '../config/plans';
@@ -35,12 +36,17 @@ export const ingestLog = async (
   data: z.infer<typeof IngestLogSchema>,
   project: ProjectContext
 ) => {
-  // Enforce the plan's monitored-endpoint limit. A new endpoint beyond the cap
-  // is rejected; logs for endpoints already tracked continue to flow.
+  // Normalise dynamic segments (/users/999 → /users/:id) so that resource ids
+  // don't each count as a distinct endpoint or fragment error groups.
+  const normalizedEndpoint = normalizeEndpoint(data.endpoint);
+
+  // Enforce the plan's monitored-endpoint limit against NORMALISED endpoints.
+  // A new endpoint beyond the cap is rejected; logs for endpoints already
+  // tracked continue to flow.
   const maxEndpoints = PLANS[project.plan].limits.maxEndpoints;
   if (maxEndpoints !== null) {
-    const known = await Log.distinct('endpoint', { projectId: project.id });
-    if (!known.includes(data.endpoint) && known.length >= maxEndpoints) {
+    const known = await Log.distinct('normalizedEndpoint', { projectId: project.id });
+    if (!known.includes(normalizedEndpoint) && known.length >= maxEndpoints) {
       throw createError(
         `Endpoint limit reached (${maxEndpoints}) for your plan. Upgrade to monitor more endpoints.`,
         403
@@ -48,24 +54,33 @@ export const ingestLog = async (
     }
   }
 
-  const suggestion = analyseRootCause({
-    errorMessage: data.errorMessage,
-    stackTrace: data.stackTrace,
-    statusCode: data.statusCode,
-  });
+  const isError = data.statusCode >= 400;
 
-  const groupKey = buildGroupKey(data.endpoint, data.errorMessage);
+  // Root-cause analysis and error grouping only apply to failures. Success
+  // logs are stored as lightweight traffic records (for counts / IPs / rate).
+  const suggestion = isError
+    ? analyseRootCause({
+        errorMessage: data.errorMessage,
+        stackTrace: data.stackTrace,
+        statusCode: data.statusCode,
+      })
+    : undefined;
+
+  const groupKey = isError ? buildGroupKey(normalizedEndpoint, data.errorMessage) : undefined;
 
   const log = await Log.create({
     ...data,
     projectId: project.id,
+    normalizedEndpoint,
     suggestion,
     groupKey,
     timestamp: data.timestamp ? new Date(data.timestamp) : new Date(),
   });
 
-  // Async alert check (non-blocking)
-  checkAndAlert(project, data.endpoint, data.errorMessage, groupKey).catch(console.error);
+  // Async alert check (non-blocking) — errors only.
+  if (isError && groupKey) {
+    checkAndAlert(project, data.endpoint, data.errorMessage, groupKey).catch(console.error);
+  }
 
   return log;
 };
@@ -122,11 +137,18 @@ export const getLogById = async (logId: string, projectId: string) => {
 
 export const getErrorGroups = async (projectId: string) => {
   return Log.aggregate([
-    { $match: { projectId: new (require('mongoose').Types.ObjectId)(projectId) } },
+    {
+      $match: {
+        projectId: new (require('mongoose').Types.ObjectId)(projectId),
+        // Error groups only — success logs have no groupKey.
+        statusCode: { $gte: 400 },
+        groupKey: { $ne: null },
+      },
+    },
     {
       $group: {
         _id: '$groupKey',
-        endpoint: { $first: '$endpoint' },
+        endpoint: { $first: '$normalizedEndpoint' },
         method: { $first: '$method' },
         errorMessage: { $first: '$errorMessage' },
         statusCode: { $first: '$statusCode' },
@@ -144,18 +166,40 @@ export const getErrorGroups = async (projectId: string) => {
 export const getLogStats = async (projectId: string) => {
   const now = new Date();
   const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const oid = new (require('mongoose').Types.ObjectId)(projectId);
 
-  const [total, errors24h, byStatus] = await Promise.all([
-    Log.countDocuments({ projectId }),
-    Log.countDocuments({ projectId, statusCode: { $gte: 400 }, timestamp: { $gte: last24h } }),
-    Log.aggregate([
-      { $match: { projectId: new (require('mongoose').Types.ObjectId)(projectId) } },
-      { $group: { _id: '$statusCode', count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
-    ]),
-  ]);
+  const [total, success, failure, total24h, errors24h, byStatus, uniqueIps] =
+    await Promise.all([
+      Log.countDocuments({ projectId }),
+      Log.countDocuments({ projectId, statusCode: { $lt: 400 } }),
+      Log.countDocuments({ projectId, statusCode: { $gte: 400 } }),
+      Log.countDocuments({ projectId, timestamp: { $gte: last24h } }),
+      Log.countDocuments({
+        projectId,
+        statusCode: { $gte: 400 },
+        timestamp: { $gte: last24h },
+      }),
+      Log.aggregate([
+        { $match: { projectId: oid } },
+        { $group: { _id: '$statusCode', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+      ]),
+      Log.distinct('ip', { projectId, ip: { $nin: [null, ''] } }),
+    ]);
 
-  return { total, errors24h, byStatus };
+  const successRate = total > 0 ? Number(((success / total) * 100).toFixed(2)) : 0;
+
+  return {
+    total,
+    success,
+    failure,
+    total24h,
+    errors24h,
+    success24h: Math.max(0, total24h - errors24h),
+    successRate,
+    uniqueIps: uniqueIps.length,
+    byStatus,
+  };
 };
 
 /**

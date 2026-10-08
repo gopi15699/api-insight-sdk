@@ -1,4 +1,4 @@
-import { createEnv } from '@gopinath_natarajan/env-validator';
+import { createEnv } from 'envaegis';
 
 export const env = createEnv(
   {
@@ -33,17 +33,16 @@ export const env = createEnv(
     SMS_API_KEY:             { type: 'string',  required: false, description: 'SMS provider API key / auth token' },
     SMS_API_SECRET:          { type: 'string',  required: false, description: 'SMS provider API secret (if required)' },
 
-    // ── Razorpay billing ─────────────────────────────────────────────────────
+    // ── Stripe billing ─────────────────────────────────────────────────────
     // Optional so the app boots without billing configured; subscribe/webhook
     // routes guard at runtime and return a clear error when keys are missing.
-    FRONTEND_URL:            { type: 'string',  default: 'http://localhost:3000', description: 'Public URL of the dashboard (Razorpay callback/return)' },
-    RAZORPAY_KEY_ID:         { type: 'string',  required: false, description: 'Razorpay API key id (rzp_test_… / rzp_live_…)' },
-    RAZORPAY_KEY_SECRET:     { type: 'string',  required: false, description: 'Razorpay API key secret' },
-    RAZORPAY_WEBHOOK_SECRET: { type: 'string',  required: false, description: 'Razorpay webhook signing secret' },
-    RAZORPAY_PLAN_PRO_MONTHLY:   { type: 'string', default: '', description: 'Razorpay plan id for Pro monthly' },
-    RAZORPAY_PLAN_PRO_YEARLY:    { type: 'string', default: '', description: 'Razorpay plan id for Pro yearly' },
-    RAZORPAY_PLAN_ULTRA_MONTHLY: { type: 'string', default: '', description: 'Razorpay plan id for Ultra monthly' },
-    RAZORPAY_PLAN_ULTRA_YEARLY:  { type: 'string', default: '', description: 'Razorpay plan id for Ultra yearly' },
+    FRONTEND_URL:            { type: 'string',  default: 'http://localhost:3000', description: 'Public URL of the dashboard (Stripe Checkout return / cancel)' },
+    STRIPE_SECRET_KEY:       { type: 'string',  required: false, description: 'Stripe secret key (sk_test_… / sk_live_…)' },
+    STRIPE_WEBHOOK_SECRET:   { type: 'string',  required: false, description: 'Stripe webhook signing secret (whsec_…)' },
+    STRIPE_PRICE_PRO_MONTHLY:   { type: 'string', default: '', description: 'Stripe Price id for Pro monthly' },
+    STRIPE_PRICE_PRO_YEARLY:    { type: 'string', default: '', description: 'Stripe Price id for Pro yearly' },
+    STRIPE_PRICE_ULTRA_MONTHLY: { type: 'string', default: '', description: 'Stripe Price id for Ultra monthly' },
+    STRIPE_PRICE_ULTRA_YEARLY:  { type: 'string', default: '', description: 'Stripe Price id for Ultra yearly' },
   },
   { dotenv: true, mode: 'strict' }
 );
@@ -51,8 +50,8 @@ export const env = createEnv(
 // Derived helpers
 export const allowedOrigins = env.ALLOWED_ORIGINS.split(',').map((o) => o.trim());
 
-/** True when the Razorpay API credentials are configured. */
-export const billingEnabled = Boolean(env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET);
+/** True when the Stripe API credentials are configured. */
+export const billingEnabled = Boolean(env.STRIPE_SECRET_KEY);
 
 /** True when GitHub OAuth is configured. */
 export const githubEnabled = Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET);

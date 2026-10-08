@@ -818,14 +818,14 @@ function Pricing() {
                 {plan.monthly === null ? (
                   <p className="text-3xl font-bold text-white">Custom</p>
                 ) : plan.monthly === 0 ? (
-                  <p className="text-3xl font-bold text-white">₹0 <span className="text-base font-normal text-slate-500">/ forever</span></p>
+                  <p className="text-3xl font-bold text-white">$0 <span className="text-base font-normal text-slate-500">/ forever</span></p>
                 ) : (
                   <>
                     <p className="text-3xl font-bold text-white">
-                      ₹{yearly ? Math.round((plan.yearly as number) / 12).toLocaleString() : (plan.monthly as number).toLocaleString()}
+                      ${yearly ? Math.round((plan.yearly as number) / 12).toLocaleString() : (plan.monthly as number).toLocaleString()}
                       <span className="text-base font-normal text-slate-500"> / {plan.per}</span>
                     </p>
-                    {yearly && <p className="text-xs text-emerald-400 mt-1.5">₹{(plan.yearly as number).toLocaleString()} billed yearly</p>}
+                    {yearly && <p className="text-xs text-emerald-400 mt-1.5">${(plan.yearly as number).toLocaleString()} billed yearly</p>}
                   </>
                 )}
               </div>

@@ -4,10 +4,10 @@ import { env } from './env';
  * Plan catalogue — the single source of truth for what each tier unlocks.
  *
  * These limits mirror the pricing cards on the marketing site and are enforced
- * server-side (project creation, log retention). Prices are in paise where
- * relevant but the actual charge is driven by the Razorpay plan, identified by
- * the `razorpayPlanId` values below (created once in the Razorpay dashboard and
- * injected via env).
+ * server-side (project creation, log retention). Display prices are in whole
+ * USD; the actual charge is driven by the Stripe Price identified by the
+ * `stripePriceId` values below (created via `npm run seed:stripe` and injected
+ * via env).
  */
 
 export type PlanId = 'free' | 'pro' | 'ultra';
@@ -25,11 +25,11 @@ export interface PlanLimits {
 export interface PlanDefinition {
   id: PlanId;
   name: string;
-  /** Display price (INR) per cycle. 0 for free. */
+  /** Display price (USD) per cycle. 0 for free. */
   price: { monthly: number; yearly: number };
   limits: PlanLimits;
-  /** Razorpay plan IDs per billing cycle. Empty for the free tier. */
-  razorpayPlanId: { monthly: string; yearly: string };
+  /** Stripe Price IDs per billing cycle. Empty for the free tier. */
+  stripePriceId: { monthly: string; yearly: string };
 }
 
 export const PLANS: Record<PlanId, PlanDefinition> = {
@@ -38,40 +38,41 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     name: 'Free',
     price: { monthly: 0, yearly: 0 },
     limits: { maxProjects: 1, maxEndpoints: 5, retentionDays: 7 },
-    razorpayPlanId: { monthly: '', yearly: '' },
+    stripePriceId: { monthly: '', yearly: '' },
   },
   pro: {
     id: 'pro',
     name: 'Pro',
-    price: { monthly: 500, yearly: 4800 },
+    // Yearly = 10x monthly (2 months free).
+    price: { monthly: 19, yearly: 190 },
     limits: { maxProjects: 5, maxEndpoints: 50, retentionDays: 30 },
-    razorpayPlanId: {
-      monthly: env.RAZORPAY_PLAN_PRO_MONTHLY,
-      yearly: env.RAZORPAY_PLAN_PRO_YEARLY,
+    stripePriceId: {
+      monthly: env.STRIPE_PRICE_PRO_MONTHLY,
+      yearly: env.STRIPE_PRICE_PRO_YEARLY,
     },
   },
   ultra: {
     id: 'ultra',
     name: 'Ultra',
-    price: { monthly: 1000, yearly: 9600 },
+    price: { monthly: 49, yearly: 490 },
     limits: { maxProjects: null, maxEndpoints: null, retentionDays: 90 },
-    razorpayPlanId: {
-      monthly: env.RAZORPAY_PLAN_ULTRA_MONTHLY,
-      yearly: env.RAZORPAY_PLAN_ULTRA_YEARLY,
+    stripePriceId: {
+      monthly: env.STRIPE_PRICE_ULTRA_MONTHLY,
+      yearly: env.STRIPE_PRICE_ULTRA_YEARLY,
     },
   },
 };
 
-/** Plans that can actually be subscribed to via Razorpay (excludes free). */
+/** Plans that can actually be subscribed to via Stripe (excludes free). */
 export const PAID_PLANS: PlanId[] = ['pro', 'ultra'];
 
 export const getPlan = (id: PlanId): PlanDefinition => PLANS[id];
 
-/** Resolve the Razorpay plan id for a tier + cycle, or undefined if unset/free. */
-export const resolveRazorpayPlanId = (
+/** Resolve the Stripe Price id for a tier + cycle, or undefined if unset/free. */
+export const resolveStripePriceId = (
   plan: PlanId,
   cycle: BillingCycle
 ): string | undefined => {
-  const id = PLANS[plan]?.razorpayPlanId[cycle];
+  const id = PLANS[plan]?.stripePriceId[cycle];
   return id ? id : undefined;
 };

@@ -16,7 +16,9 @@ app.use(express.json());
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 2. Mount the SDK middleware BEFORE your routes
-//    It will automatically capture every 4xx and 5xx response
+//    It captures EVERY request (success + failure). Failures (4xx/5xx) also
+//    carry the error message, request/response body, and a root-cause suggestion.
+//    (Pass { errorsOnly: true } to capture only failures.)
 // ─────────────────────────────────────────────────────────────────────────────
 app.use(createMiddleware(insight));
 
@@ -25,7 +27,7 @@ app.use(createMiddleware(insight));
 // can see them appear on your API Insight dashboard
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ✅  200 OK — no log sent (only errors are tracked)
+// ✅  200 OK — captured as a successful request (counts toward success rate)
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });

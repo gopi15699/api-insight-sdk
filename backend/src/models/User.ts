@@ -3,14 +3,14 @@ import bcrypt from 'bcryptjs';
 import type { PlanId, BillingCycle } from '../config/plans';
 
 /**
- * Subscription lifecycle, mirroring the Razorpay subscription states we care
- * about. `none` is the default for free-tier accounts that never subscribed.
+ * Subscription lifecycle, mapped from Stripe subscription statuses. `none` is
+ * the default for free-tier accounts that never subscribed.
  */
 export type SubscriptionStatus =
   | 'none'
-  | 'created'    // subscription created, awaiting first authorised payment
-  | 'active'     // paid & current
-  | 'past_due'   // a charge failed (Razorpay: halted/pending)
+  | 'created'    // Checkout session created, awaiting completion
+  | 'active'     // paid & current (Stripe: active / trialing)
+  | 'past_due'   // a charge failed (Stripe: past_due / unpaid / incomplete)
   | 'cancelled'; // cancelled (may still be active until currentPeriodEnd)
 
 export interface IUser extends Document {
@@ -33,8 +33,8 @@ export interface IUser extends Document {
   plan: PlanId;
   billingCycle?: BillingCycle;
   subscriptionStatus: SubscriptionStatus;
-  razorpayCustomerId?: string;
-  razorpaySubscriptionId?: string;
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
   currentPeriodEnd?: Date;  // access remains until this date even if cancelled
 
   createdAt: Date;
@@ -61,8 +61,8 @@ const UserSchema = new Schema<IUser>(
     plan:                   { type: String, enum: ['free', 'pro', 'ultra'], default: 'free' },
     billingCycle:           { type: String, enum: ['monthly', 'yearly'] },
     subscriptionStatus:     { type: String, enum: ['none', 'created', 'active', 'past_due', 'cancelled'], default: 'none' },
-    razorpayCustomerId:     { type: String },
-    razorpaySubscriptionId: { type: String, index: true },
+    stripeCustomerId:       { type: String, index: true },
+    stripeSubscriptionId:   { type: String, index: true },
     currentPeriodEnd:       { type: Date },
   },
   { timestamps: true }

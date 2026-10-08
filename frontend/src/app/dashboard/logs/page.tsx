@@ -88,7 +88,7 @@ function LogsContent() {
         <div>
           <h1 className="text-2xl font-bold text-white">Logs</h1>
           <p className="text-slate-400 text-sm mt-1">
-            {total > 0 ? `${total.toLocaleString()} total errors` : 'API error logs'}
+            {total > 0 ? `${total.toLocaleString()} total requests` : 'API request logs'}
           </p>
         </div>
         <Button onClick={loadLogs} variant="ghost" className="text-slate-400 hover:text-white gap-2">
